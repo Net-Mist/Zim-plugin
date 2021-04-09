@@ -31,7 +31,5 @@ option3
 options can be:
 - toc: add a table of content
 - s: split between section
-- remarkable: 
-- dvs: 
-
-
+- remarkable: add timestamp in the filename and empty pages at the end of the document
+- dvs: DejaVuSans font
