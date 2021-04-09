@@ -17,10 +17,21 @@ see :
   - convert a page to a pdf document
   - python3 PATH_TO_THIS_PROJECT/pdf_convert.py %f pdf_convert
 
-- remarkable
-  - send a file to remarkable
-  - python3 PATH_TO_THIS_PROJECT/pdf_convert.py %f remarkable
 
-- remarkableS
-  - send a file to remarkable and let space in every subsections
-  - python3 PATH_TO_THIS_PROJECT/pdf_convert.py %f remarkableS
+The beginning of the document is formatted as:
+
+"""
+Title of the document
+==================
+option1
+option2
+option3
+"""
+
+options can be:
+- toc: add a table of content
+- s: split between section
+- remarkable: 
+- dvs: 
+
+
