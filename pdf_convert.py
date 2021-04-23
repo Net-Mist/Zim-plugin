@@ -1,32 +1,27 @@
 """
 This script should be called by Zim as a plugin.
-it can be used in several tools :
-- pdf_convert: convert a page to a pdf. This use Zim libraries to convert from wiki to markdown,
-  then Pandoc to convert to pdf.
-- remarkable: convert a page to a pdf, then do a request to send the file to a connected remarkable
-- remarkableS: convert a page to a pdf with spacing before every subsections to have space to write on the remarkable,
-  then do a request to send the file to a connected remarkable
+The command Zim need to run is :
+
+python3 PATH_TO_THIS_FILE/pdf_convert.py %f %d
 """
-import re
-import os
-from pathlib import Path
-import sys
 import logging
-import subprocess
-import traceback
+import os
 import pathlib
+import re
+import subprocess
+import sys
+import traceback
 from datetime import date, datetime
-from xml.etree.ElementTree import parse
+from pathlib import Path
 
 # We will use official zim tools to convert the wiki to a markdown file
-from zim.formats.wiki import WikiParser
-from zim.formats.markdown import Dumper
 from zim.formats import ParseTreeBuilder, StubLinker
+from zim.formats.markdown import Dumper
+from zim.formats.wiki import WikiParser
 
-
-LOGNAME = "/tmp/zim_pdf_convert/pdf_convert.log"
-LOGLEVEL = logging.DEBUG
 DIRNAME = "/tmp/zim_pdf_convert"
+LOGNAME = DIRNAME + "/pdf_convert.log"
+LOGLEVEL = logging.DEBUG
 MARKDOWN_PATH = os.path.join(DIRNAME, 'markdown.md')
 os.makedirs(DIRNAME, exist_ok=True)
 
@@ -35,13 +30,15 @@ logging.basicConfig(format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(messa
                     handlers=[logging.FileHandler(LOGNAME), logging.StreamHandler()],
                     level=LOGLEVEL)
 
-# This custom dumper is needed to correctly parse code blocks from Zim
-
 
 class CustomDumper(Dumper):
-  def dump_object_fallback(self, tag, attrib, strings=None):
+  # This custom dumper is needed to correctly parse code blocks and images from Zim
+  def __init__(self, attachment_dir, linker=None, template_options=None):
+    super().__init__(linker, template_options)
+    self.attachment_dir = attachment_dir
 
-    # dump code as... code
+  def dump_object_fallback(self, tag, attrib, strings=None):
+    # dump code as markdown code block with language specification
     if attrib['type'] == 'code':
       lang = attrib['lang']
       out = [f"```{lang}\n"] \
@@ -52,13 +49,39 @@ class CustomDumper(Dumper):
     # dump object as verbatim block
     return self.prefix_lines('\t', strings)
 
+  def dump_img(self, tag, attrib, strings=None):
+    """
+    Args:
+      tag: always "img"
+      attrib: dictionary with key 'src' and maybe 'width' or 'height'
+    """
+    src = self.linker.img(attrib['src'])
+    # update src to remove '../' and '~'
+    home = str(Path.home())
+    src = src.replace('~', home)
+    src = src.replace('../', '/'.join(self.attachment_dir.split('/')[:-1])+'/')
+    src = src.replace('./', self.attachment_dir+'/')
 
-def parse_zim(source_file):
+    text = attrib.get('alt', '')
+
+    param_keys = ['width', 'height']
+    params = ""
+    for key in param_keys:
+      if key in attrib:
+        params += f"{key}={attrib[key]}"
+
+    if params:
+      return ['![%s](%s){ %s }' % (text, src, params)]
+    else:
+      return ['![%s](%s)' % (text, src)]
+
+
+def parse_zim(source_file, attachment_dir):
   with open(source_file, 'r') as f:
     text = f.read()
   builder = ParseTreeBuilder()
   WikiParser()(builder, text)
-  md = CustomDumper(linker=StubLinker()).dump(builder.get_parsetree())
+  md = CustomDumper(attachment_dir, linker=StubLinker()).dump(builder.get_parsetree())
   logging.info("conversion to markdown done")
   return md
 
@@ -86,10 +109,8 @@ def add_markdown_header(md):
 
 def save_markdown(md):
   # write markdown to tmp file
-  home = str(Path.home())
   with open(MARKDOWN_PATH, 'w') as f:
     for line in md:
-      line = line.replace('~', home)
       f.write(line)
 
 
@@ -100,6 +121,7 @@ def get_variables(md):
       "^remarkable( |\t)*$": {'var': " --variable endemptypage=1", 'remarkable': True},
       "^dvs( |\t)*$": {'var': " --variable mainfont:DejaVuSans.ttf"},
   }
+  # TODO add date option
   v = "--variable fontsize=12pt"
   remarkable = False
   for l in md[2:]:
@@ -108,14 +130,13 @@ def get_variables(md):
     for k in regex_to_function.keys():
       if bool(re.match(k, l.replace('\n', ''))):
         v += regex_to_function[k]['var']
-        print(regex_to_function[k]['var'])
         if 'remarkable' in regex_to_function[k]:
           remarkable = True
   return v, remarkable
 
 
-def main(source_file):
-  md = parse_zim(source_file)
+def main(source_file, attachment_dir):
+  md = parse_zim(source_file, attachment_dir)
   filename = get_filename(md)
   variables, is_remarkable = get_variables(md)
   md = add_markdown_header(md)
@@ -135,11 +156,13 @@ def main(source_file):
 
 
 if __name__ == "__main__":
-  # the command line is "python3 /path/pdf_convert.py %f"
+  # the command line is "python3 /path/pdf_convert.py %f %d"
+  logging.info(f"{sys.argv}")
   try:
     f = sys.argv[1]  # %f in vim notation, path of the source file we need to work on
-    logging.info(f"pdf_convert called with, f: {f}")
-    main(f)
+    d = sys.argv[2]  # %d in vim notation, the attachment directory
+    logging.info(f"pdf_convert called with, f: {f}, d: {d}")
+    main(f, d)
   except Exception as e:
     tb = traceback.format_exc()
     logging.error(f"{tb}")
